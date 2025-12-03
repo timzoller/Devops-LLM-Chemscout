@@ -104,11 +104,7 @@ def search_products_tool(
     """
     Durchsucht die Produktdatenbank.
 
-    Gibt IMMER ein Objekt mit dem Key 'results' zurück,
-    auch wenn keine Treffer gefunden wurden (dann: []).
-
-    Das stellt sicher, dass der MCP-Client mindestens
-    einen Content-Block erhält und das LLM etwas sieht.
+    Gibt IMMER ein Objekt mit 'results' zurück.
     """
     results = search_products(
         query=query,
@@ -117,6 +113,7 @@ def search_products_tool(
         max_price=max_price,
     )
     return {"results": results}
+
 
 @SERVER.tool()
 def list_products_tool() -> list[dict]:
@@ -138,34 +135,29 @@ def create_order_tool(
     supplier: str | None = None,
     purity: str | None = None,
     package_size: str | None = None,
-    estimated_price: float | None = None,
+    price_range: str | None = None,
 ) -> dict:
     """
-    Creates an order. Accepts product_id = 0 for external (non-database) items.
-
-    If product_id == 0:
-        → the order is still created
-        → marked as external
-        → optional metadata is stored for user context
+    Creates an order. Accepts product_id=0 for external items.
     """
 
     if product_id == 0:
-        # EXTERNAL ORDER (not in DB)
-        order = {
-            "order_id": f"ext-{create_order(None, quantity, unit, customer_reference)['order_id']}",
-            "status": "created",
-            "external": True,
-            "name": name,
-            "supplier": supplier,
-            "purity": purity,
-            "package_size": package_size,
-            "estimated_price": estimated_price,
-            "quantity": quantity,
-            "unit": unit,
-        }
+        # EXTERNAL ORDER
+        order = create_order(
+            product_id=0,
+            quantity=quantity,
+            unit=unit,
+            customer_reference=customer_reference,
+            external_name=name,
+            external_supplier=supplier,
+            external_purity=purity,
+            external_package_size=package_size,
+            external_price_range=price_range,
+        )
+        order["external"] = True
         return order
 
-    # NORMAL ORDER (product exists in DB)
+    # INTERNAL ORDER
     order = create_order(
         product_id=product_id,
         quantity=quantity,
@@ -174,8 +166,6 @@ def create_order_tool(
     )
     order["external"] = False
     return order
-
-
 
 @SERVER.tool()
 def get_order_status_tool(order_id: str) -> dict:
@@ -191,17 +181,9 @@ def list_open_orders_tool() -> list[dict]:
     """Listet alle offenen Bestellungen."""
     return list_open_orders()
 
-
-
-
 # -----------------------------
 # Server Start
 # -----------------------------
 if __name__ == "__main__":
-    import asyncio
-
     print("[MCP] ChemScout tool server running on streamable-http at /mcp")
-
-    # transport = "streamable-http"
-    # mount_path = "/mcp"
     asyncio.run(SERVER.run("streamable-http", "/mcp"))

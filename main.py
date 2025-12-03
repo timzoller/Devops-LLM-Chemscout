@@ -16,6 +16,8 @@ from src.agents.router import classify_intent
 from src.agents.factory import build_agents
 from src.interfaces.rich_chat_display import RichChatDisplay
 
+from src.database.db import init_db
+
 logger = get_logger(__name__)
 
 
@@ -44,6 +46,9 @@ def start_mcp_background():
 async def main():
     print("\n=== ChemScout AI – Unified Agent System ===\n")
 
+    # Initialize DB
+    init_db()
+    logger.info("Database initialized.")
     # 1. Start MCP server
     start_mcp_background()
     await asyncio.sleep(1.2)

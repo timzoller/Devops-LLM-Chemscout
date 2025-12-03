@@ -23,7 +23,9 @@ def init_db() -> None:
     with get_connection() as conn:
         cur = conn.cursor()
 
-        # Produkte-Tabelle
+        # -------------------------
+        # PRODUCTS TABLE
+        # -------------------------
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS products (
@@ -41,19 +43,27 @@ def init_db() -> None:
             """
         )
 
-        # Orders-Tabelle
+        # -------------------------
+        # ORDERS TABLE (FIXED)
+        # -------------------------
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS orders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id TEXT NOT NULL,
-                product_id INTEGER NOT NULL,
+                order_id TEXT PRIMARY KEY,
+                product_id INTEGER DEFAULT 0,
                 quantity REAL NOT NULL,
-                unit TEXT NOT NULL,
-                status TEXT NOT NULL,
+                unit TEXT NOT NULL DEFAULT 'g',
+                status TEXT NOT NULL DEFAULT 'OPEN',
                 customer_reference TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (product_id) REFERENCES products (id)
+
+                -- Metadata for external orders:
+                external_name TEXT,
+                external_supplier TEXT,
+                external_purity TEXT,
+                external_package_size TEXT,
+                external_price_range TEXT,
+
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
@@ -211,8 +221,13 @@ def create_order(
     quantity: float,
     unit: str,
     customer_reference: str | None = None,
+    external_name: str | None = None,
+    external_supplier: str | None = None,
+    external_purity: str | None = None,
+    external_package_size: str | None = None,
+    external_price_range: str | None = None,
 ) -> dict:
-    """Erstellt eine Order und gibt ein Order-Objekt zurück."""
+    """Erstellt interne oder externe Orders."""
     from uuid import uuid4
 
     order_id = f"ORD-{uuid4().hex[:8].upper()}"
@@ -224,9 +239,13 @@ def create_order(
         cur.execute(
             """
             INSERT INTO orders (
-                order_id, product_id, quantity, unit,
-                status, customer_reference, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                order_id, product_id, quantity, unit, status,
+                customer_reference,
+                external_name, external_supplier, external_purity,
+                external_package_size, external_price_range,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_id,
@@ -235,6 +254,11 @@ def create_order(
                 unit,
                 status,
                 customer_reference,
+                external_name,
+                external_supplier,
+                external_purity,
+                external_package_size,
+                external_price_range,
                 now,
             ),
         )
@@ -246,6 +270,11 @@ def create_order(
         "unit": unit,
         "status": status,
         "customer_reference": customer_reference,
+        "external_name": external_name,
+        "external_supplier": external_supplier,
+        "external_purity": external_purity,
+        "external_package_size": external_package_size,
+        "external_price_range": external_price_range,
         "created_at": now,
     }
 
@@ -257,7 +286,10 @@ def get_order_status(order_id: str) -> dict | None:
         cur.execute(
             """
             SELECT order_id, product_id, quantity, unit, status,
-                   customer_reference, created_at
+                   customer_reference,
+                   external_name, external_supplier, external_purity,
+                   external_package_size, external_price_range,
+                   created_at
             FROM orders WHERE order_id = ?
             """,
             (order_id,),
@@ -274,6 +306,11 @@ def get_order_status(order_id: str) -> dict | None:
         unit,
         status,
         customer_reference,
+        external_name,
+        external_supplier,
+        external_purity,
+        external_package_size,
+        external_price_range,
         created_at,
     ) = row
 
@@ -284,6 +321,11 @@ def get_order_status(order_id: str) -> dict | None:
         "unit": unit,
         "status": status,
         "customer_reference": customer_reference,
+        "external_name": external_name,
+        "external_supplier": external_supplier,
+        "external_purity": external_purity,
+        "external_package_size": external_package_size,
+        "external_price_range": external_price_range,
         "created_at": created_at,
     }
 
@@ -295,7 +337,10 @@ def list_open_orders() -> list[dict]:
         cur.execute(
             """
             SELECT order_id, product_id, quantity, unit, status,
-                   customer_reference, created_at
+                   customer_reference,
+                   external_name, external_supplier, external_purity,
+                   external_package_size, external_price_range,
+                   created_at
             FROM orders WHERE status = 'OPEN'
             """
         )
@@ -310,6 +355,11 @@ def list_open_orders() -> list[dict]:
             unit,
             status,
             customer_reference,
+            external_name,
+            external_supplier,
+            external_purity,
+            external_package_size,
+            external_price_range,
             created_at,
         ) = row
         orders.append(
@@ -320,6 +370,11 @@ def list_open_orders() -> list[dict]:
                 "unit": unit,
                 "status": status,
                 "customer_reference": customer_reference,
+                "external_name": external_name,
+                "external_supplier": external_supplier,
+                "external_purity": external_purity,
+                "external_package_size": external_package_size,
+                "external_price_range": external_price_range,
                 "created_at": created_at,
             }
         )
