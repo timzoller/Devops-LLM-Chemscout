@@ -1,0 +1,22 @@
+openai>=1.30.0
+mcp>=0.1.4
+pydantic>=2.6.0
+python-dotenv>=1.0.0
+
+# Database & utilities
+sqlalchemy>=2.0.0
+
+# CLI & logging
+rich>=13.7.0
+
+# General tooling
+typing-extensions>=4.8.0
+
+# Für dein Projekt sinnvoll
+requests>=2.32.0
+
+# Optional für LLM-Agenten Debugging
+tenacity>=8.2.3
+
+
+websockets>=12.0
