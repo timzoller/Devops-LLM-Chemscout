@@ -14,6 +14,7 @@ from src.database.db import (
     create_order,
     get_order_status,
     list_open_orders,
+    calculate_monthly_spending,
 )
 
 # -----------------------------
@@ -180,6 +181,13 @@ def get_order_status_tool(order_id: str) -> dict:
 def list_open_orders_tool() -> list[dict]:
     """Listet alle offenen Bestellungen."""
     return list_open_orders()
+
+@SERVER.tool()
+def monthly_spending_tool(year: int, month: int) -> dict:
+    """
+    Returns aggregated chemical spending for a given month.
+    """
+    return calculate_monthly_spending(year, month)
 
 # -----------------------------
 # Server Start

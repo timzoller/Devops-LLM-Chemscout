@@ -407,3 +407,101 @@ def list_all_products():
             "delivery_time_days": r[8],
         })
     return results
+
+
+def calculate_monthly_spending(year: int, month: int) -> dict:
+    """
+    Aggregiert alle Ausgaben für einen gegebenen Monat.
+    Verarbeitet robuste Preisformate wie:
+      - 'CHF 20 - 55'
+      - '20-55'
+      - '20 - 55'
+      - 'CHF 30'
+      - '30'
+    """
+
+    import re
+
+    def parse_price_range(pr):
+        if not pr:
+            return 0.0
+
+        # Entferne CHF, Leerzeichen, "bis", etc.
+        cleaned = re.sub(r"[^\d\-\.]", "", pr)
+
+        # Fälle:
+        #  1) "20-50"
+        #  2) "20"
+        if "-" in cleaned:
+            low, high = cleaned.split("-")
+            try:
+                return (float(low) + float(high)) / 2
+            except:
+                return 0.0
+        else:
+            # Einzelpreis
+            try:
+                return float(cleaned)
+            except:
+                return 0.0
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT
+                o.order_id, o.product_id, o.quantity, o.unit,
+                o.created_at,
+                p.price,
+                o.external_price_range,
+                o.external_name,
+                o.external_supplier
+            FROM orders o
+            LEFT JOIN products p ON o.product_id = p.id
+            WHERE strftime('%Y', o.created_at) = ?
+              AND strftime('%m', o.created_at) = ?
+            """,
+            (str(year), f"{month:02d}")
+        )
+
+        rows = cur.fetchall()
+
+    total = 0.0
+    orders_list = []
+
+    for row in rows:
+        (
+            order_id, pid, quantity, unit,
+            created_at, price, ext_range, ext_name, ext_supplier
+        ) = row
+
+        # INTERNER PREIS
+        if pid != 0 and price is not None:
+            estimated_cost = float(price)
+
+        # EXTERNER PREIS
+        else:
+            estimated_cost = parse_price_range(ext_range)
+
+        total += estimated_cost
+
+        orders_list.append({
+            "order_id": order_id,
+            "product_id": pid,
+            "estimated_cost": estimated_cost,
+            "quantity": quantity,
+            "unit": unit,
+            "created_at": created_at,
+            "external_name": ext_name,
+            "external_supplier": ext_supplier
+        })
+
+    return {
+        "year": year,
+        "month": month,
+        "total_spending": round(total, 2),
+        "orders": orders_list
+    }
+
+

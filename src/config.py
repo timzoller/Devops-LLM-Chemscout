@@ -23,4 +23,5 @@ ALL_ALLOWED_TOOLS = [
     "create_order_tool",
     "get_order_status_tool",
     "list_open_orders_tool",
+    "monthly_spending_tool",
 ]
