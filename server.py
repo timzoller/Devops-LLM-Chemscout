@@ -189,7 +189,10 @@ async def chat_endpoint(req: ChatRequest):
         # Check for Rate Limit specifically
         error_str = str(e)
         if "429" in error_str or "RateLimit" in type(e).__name__:
-            error_msg = "⏳ **Rate Limit Exceeded**\n\nYou have run out of tokens. Please wait a moment before sending another message."
+            if "GenerateRequestsPerDay" in error_str:
+                error_msg = "🛑 **Daily Quota Exceeded**\n\nYou have reached your free daily limit for the Gemini 2.5 Flash model (API). You will need to wait until tomorrow or use a different API key."
+            else:
+                error_msg = "⏳ **Rate Limit Exceeded**\n\nYou have run out of tokens for the moment. Please wait a minute before sending another message."
         else:
             error_msg += f"\nError details: {error_str}"
             
