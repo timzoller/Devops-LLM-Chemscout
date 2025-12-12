@@ -68,6 +68,19 @@ def init_db() -> None:
             """
         )
 
+        # -------------------------
+        # SEARCH HISTORY TABLE
+        # -------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS search_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
 
 def add_product(
     name: str,
@@ -407,3 +420,66 @@ def list_all_products():
             "delivery_time_days": r[8],
         })
     return results
+
+
+def log_search(query: str):
+    """Logs a search query to the history."""
+    if not query:
+        return
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO search_history (query) VALUES (?)", (query,))
+
+
+def get_search_history(limit: int = 20) -> list[dict]:
+    """Retrieves recent search queries."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT query, timestamp FROM search_history ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        rows = cur.fetchall()
+    
+    return [{"query": r[0], "timestamp": r[1]} for r in rows]
+
+
+def get_inventory_stats() -> dict:
+    """Aggregates inventory statistics."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        # Count total products
+        cur.execute("SELECT COUNT(*) FROM products")
+        total_products = cur.fetchone()[0]
+        
+        # Count by supplier
+        cur.execute("SELECT supplier, COUNT(*) FROM products GROUP BY supplier")
+        by_supplier = [{"name": r[0] or "Unknown", "value": r[1]} for r in cur.fetchall()]
+        
+        # Count orders
+        cur.execute("SELECT COUNT(*) FROM orders")
+        total_orders = cur.fetchone()[0]
+
+    return {
+        "total_products": total_products,
+        "by_supplier": by_supplier,
+        "total_orders": total_orders
+    }
+
+
+def get_order_history_stats() -> list[dict]:
+    """Aggregates order counts over time (by day)."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        # Syntax dependent on sqlite date/time functions
+        # Group by date (YYYY-MM-DD)
+        cur.execute("""
+            SELECT date(created_at) as d, COUNT(*)
+            FROM orders
+            GROUP BY d
+            ORDER BY d ASC
+            LIMIT 30
+        """)
+        rows = cur.fetchall()
+        
+    return [{"date": r[0], "count": r[1]} for r in rows]

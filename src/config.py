@@ -12,7 +12,7 @@ DB_PATH = DATA_DIR / "chem_scout.db"
 # ---------------------------------------------------------------------
 # MCP Tool Server
 # ---------------------------------------------------------------------
-MCP_SERVER_URL = "http://127.0.0.1:8000/mcp"
+MCP_SERVER_URL = "http://127.0.0.1:8011/mcp"
 
 # Unified list of allowed MCP tools for both agents
 ALL_ALLOWED_TOOLS = [
