@@ -7,8 +7,8 @@ from chem_scout_ai.common import types
 from src.agents.prompts_order import ORDER_SYSTEM_PROMPT
 from src.agents.prompts_data import DATA_SYSTEM_PROMPT
 
-# CORRECT: use the tool manager instance
-from src.tools.mcp_manager import tool_manager
+# Distinct tool managers per agent
+from src.tools.mcp_manager import data_tool_manager, order_tool_manager
 
 
 def build_agents(backend):
@@ -27,7 +27,7 @@ def build_agents(backend):
 
     data_agent = agent_lib.Agent(
         backend=backend,
-        tool_manager=tool_manager,    # <<---- INSTANCE ✔
+        tool_manager=data_tool_manager,
     )
 
     # -----------------------
@@ -44,7 +44,7 @@ def build_agents(backend):
 
     order_agent = agent_lib.Agent(
         backend=backend,
-        tool_manager=tool_manager,    # <<---- INSTANCE ✔
+        tool_manager=order_tool_manager,
     )
 
     return {
