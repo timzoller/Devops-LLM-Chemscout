@@ -477,6 +477,8 @@ def request_inventory_revision_tool(
 ) -> dict:
     """
     Logs a request for the Data Agent to revise remaining inventory after a reorder.
+    Note: For internal orders (product_id > 0), inventory is automatically reduced when the order is created.
+    This tool is mainly for tracking and external orders.
     """
     timestamp = datetime.utcnow().isoformat()
     filename = f"inventory_{order_id}.txt"
