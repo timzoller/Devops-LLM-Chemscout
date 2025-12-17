@@ -108,6 +108,7 @@ conda activate chem-scout-ai
 
 ####  Create a .env file in the project root directory:
 OPENAI_API_KEY=your_api_key_here
+GOOGLE_API_KEY=your_gemini_key_here
 
 ####  Run the CLI Application
 python main.py
