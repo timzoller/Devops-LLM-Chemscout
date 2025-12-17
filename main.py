@@ -11,12 +11,14 @@ import uvicorn
 
 from src.utils.logger import get_logger
 from src.tools.chem_scout_mcp_tools import SERVER
-from chem_scout_ai.common.backend import Gemini2p5Flash
+from chem_scout_ai.common.backend import Gemini2p5Flash, Gemini2p5FlashLite
+from chem_scout_ai.common import types
 from src.agents.router import classify_intent
 from src.agents.factory import build_agents
 from src.interfaces.rich_chat_display import RichChatDisplay
 
 from src.database.db import init_db
+from src.config import RATE_LIMIT_CHAT_DIR
 
 logger = get_logger(__name__)
 
@@ -41,6 +43,62 @@ def start_mcp_background():
 
 
 # ================================================================
+# Cross-agent handoff helper
+# ================================================================
+HANDOFF_PREFIX = "HANDOFF:"
+
+
+async def process_handoff(message, user_text: str, agents, display) -> bool:
+    """
+    Detects HANDOFF:<target>:<reason> messages and routes the request to
+    the target agent. Returns True if a handoff was processed.
+    """
+    # Only assistant messages with string content can trigger a handoff
+    if getattr(message, "role", None) != "assistant":
+        return False
+
+    content = getattr(message, "content", None)
+    if not (isinstance(content, str) and content.startswith(HANDOFF_PREFIX)):
+        return False
+
+    try:
+        _, target_raw, reason = content.split(":", 2)
+    except ValueError:
+        return False
+
+    target = target_raw.strip().lower()
+    if target not in agents:
+        return False
+
+    reason = reason.strip() or "no reason provided"
+    target_agent, target_chat = agents[target]
+
+    # Forward the user's latest message and a short system note
+    target_chat.append(types.UserMessage(role="user", content=user_text))
+    target_chat.append(
+        types.SystemMessage(
+            role="system",
+            content=f"Handoff from the other agent. Reason: {reason}",
+        )
+    )
+
+    # Notify user in the display
+    display.display_system(
+        types.SystemMessage(
+            role="system",
+            content=f"Handing off to {target} agent: {reason}",
+        )
+    )
+
+    # Invoke the target agent and display its outputs
+    handoff_responses = await target_agent(chat=target_chat)
+    for hmsg in handoff_responses:
+        display.display(hmsg)
+
+    return True
+
+
+# ================================================================
 # Main Chat Loop (Automatic Agent Routing)
 # ================================================================
 async def main():
@@ -54,7 +112,10 @@ async def main():
     await asyncio.sleep(1.2)
 
     # 2. Init backend
-    backend = Gemini2p5Flash().get_async_backend()
+    backend = Gemini2p5Flash().get_async_backend(
+        fallback_configs=[Gemini2p5FlashLite()],
+        chat_store_dir=RATE_LIMIT_CHAT_DIR,
+    )
     logger.info("Backend initialized.")
 
     # 3. Build both agents + query their system prompts
@@ -81,7 +142,6 @@ async def main():
         agent, chat = agents[intent]
 
         # Append user message to this agent's chat only
-        from chem_scout_ai.common import types
         chat.append(types.UserMessage(role="user", content=user_text))
 
         # Show user message
@@ -95,8 +155,11 @@ async def main():
             print(f"[ERROR] Agent failed: {e}")
             continue
 
-        # 3) Display all messages from the agent
+        # 3) Display all messages from the agent, with handoff detection
         for msg in responses:
+            handed_off = await process_handoff(msg, user_text, agents, display)
+            if handed_off:
+                continue
             display.display(msg)
 
 
