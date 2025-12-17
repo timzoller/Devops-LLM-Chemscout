@@ -498,6 +498,108 @@ def request_inventory_revision_tool(
         "path": path,
     }
 
+
+@SERVER.tool()
+def process_inventory_alert_tool(order_id: str) -> dict:
+    """
+    Processes an inventory alert file and automatically reduces available quantity for internal orders.
+    This tool reads the inventory alert file created by request_inventory_revision_tool and
+    updates the product's available_quantity if it's an internal order (product_id > 0).
+    
+    Returns status and details about what was processed.
+    """
+    filename = f"inventory_{order_id}.txt"
+    alert_file = INVENTORY_ALERTS_DIR / filename
+    
+    if not alert_file.exists():
+        return {
+            "status": "not_found",
+            "message": f"Inventory alert file not found for order {order_id}",
+        }
+    
+    # Parse the alert file
+    lines = alert_file.read_text(encoding="utf-8").strip().split("\n")
+    alert_data = {}
+    for line in lines:
+        if ":" in line:
+            key, value = line.split(":", 1)
+            alert_data[key.strip()] = value.strip()
+    
+    product_id_str = alert_data.get("product_id", "unknown")
+    if product_id_str == "unknown" or not product_id_str.isdigit():
+        return {
+            "status": "skipped",
+            "message": f"Invalid or missing product_id in alert file for order {order_id}",
+        }
+    
+    product_id = int(product_id_str)
+    
+    # Only process internal orders (product_id > 0)
+    if product_id == 0:
+        return {
+            "status": "skipped",
+            "message": f"Order {order_id} is an external order (product_id=0), no inventory to update",
+        }
+    
+    # Get ordered quantity
+    ordered_qty_str = alert_data.get("ordered_quantity", "")
+    if not ordered_qty_str or ordered_qty_str == "unspecified":
+        return {
+            "status": "error",
+            "message": f"Ordered quantity not specified in alert file for order {order_id}",
+        }
+    
+    # Parse quantity and unit from string like "2.0 g" or "100.5 kg"
+    parts = ordered_qty_str.split()
+    if len(parts) < 2:
+        return {
+            "status": "error",
+            "message": f"Could not parse quantity and unit from '{ordered_qty_str}'",
+        }
+    
+    try:
+        quantity = float(parts[0])
+        unit = " ".join(parts[1:])
+    except ValueError:
+        return {
+            "status": "error",
+            "message": f"Could not parse quantity '{parts[0]}' as a number",
+        }
+    
+    # Get current product info
+    product = get_product(product_id)
+    if product is None:
+        return {
+            "status": "error",
+            "message": f"Product {product_id} not found in database",
+        }
+    
+    # Reduce quantity
+    success = reduce_product_quantity(product_id, quantity, unit)
+    
+    if success:
+        # Get updated product info
+        updated_product = get_product(product_id)
+        return {
+            "status": "ok",
+            "message": f"Successfully reduced available quantity for product {product_id}",
+            "product_id": product_id,
+            "reduced_quantity": quantity,
+            "unit": unit,
+            "previous_quantity": product.get("available_quantity"),
+            "new_quantity": updated_product.get("available_quantity") if updated_product else None,
+        }
+    else:
+        return {
+            "status": "warning",
+            "message": f"Could not reduce quantity (possibly units don't match or quantity was NULL)",
+            "product_id": product_id,
+            "current_quantity": product.get("available_quantity"),
+            "current_unit": product.get("available_unit"),
+            "requested_quantity": quantity,
+            "requested_unit": unit,
+        }
+
 # -----------------------------
 # Server Start
 # -----------------------------
