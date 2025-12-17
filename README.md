@@ -95,3 +95,26 @@ streamlit run streamlit_app.py
 ChemScout AI demonstrates how LLM-driven agents and modern DevOps practices
 can be combined to automate complex procurement workflows in a reproducible
 and modular way.
+
+#  Want to start the app quickly?
+git clone https://github.com/<your-org-or-user>/Devops-LLM-Chemscout.git
+cd Devops-LLM-Chemscout
+
+###  2. Install dependencies
+conda env create -f environment.yaml
+conda activate chem-scout-ai
+
+###  3. Configure Environment Variables
+
+####  Create a .env file in the project root directory:
+OPENAI_API_KEY=your_api_key_here
+
+####  Run the CLI Application
+python main.py
+
+If successful, you will see:
+ChemScout is ready. Type anything.
+
+###  Optional: Streamlit UI (Prototype)
+####  A simple Streamlit interface is included for demonstration purposes.
+streamlit run streamlit_app.py
