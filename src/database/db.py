@@ -38,10 +38,23 @@ def init_db() -> None:
                 price REAL,
                 currency TEXT DEFAULT 'CHF',
                 delivery_time_days INTEGER,
+                available_quantity REAL,
+                available_unit TEXT DEFAULT 'g',
                 last_updated TEXT
             )
             """
         )
+        
+        # Migration: Add available_quantity and available_unit columns if they don't exist
+        try:
+            cur.execute("ALTER TABLE products ADD COLUMN available_quantity REAL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cur.execute("ALTER TABLE products ADD COLUMN available_unit TEXT DEFAULT 'g'")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # -------------------------
         # ORDERS TABLE (FIXED)
@@ -78,6 +91,8 @@ def add_product(
     price: float | None = None,
     currency: str = "CHF",
     delivery_time_days: int | None = None,
+    available_quantity: float | None = None,
+    available_unit: str = "g",
 ) -> int:
     """Fügt ein Produkt hinzu und gibt die ID zurück."""
     now = datetime.utcnow().isoformat()
@@ -87,8 +102,8 @@ def add_product(
             """
             INSERT INTO products (
                 name, cas_number, supplier, purity, package_size,
-                price, currency, delivery_time_days, last_updated
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                price, currency, delivery_time_days, available_quantity, available_unit, last_updated
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -99,6 +114,8 @@ def add_product(
                 price,
                 currency,
                 delivery_time_days,
+                available_quantity,
+                available_unit,
                 now,
             ),
         )
@@ -115,6 +132,8 @@ def update_product(
     price: float | None = None,
     currency: str | None = None,
     delivery_time_days: int | None = None,
+    available_quantity: float | None = None,
+    available_unit: str | None = None,
 ) -> bool:
     """Aktualisiert ein Produkt. Gibt True zurück, wenn ein Datensatz betroffen war."""
     fields = []
@@ -129,6 +148,8 @@ def update_product(
         "price": price,
         "currency": currency,
         "delivery_time_days": delivery_time_days,
+        "available_quantity": available_quantity,
+        "available_unit": available_unit,
     }
     for col, val in mapping.items():
         if val is not None:
@@ -166,7 +187,7 @@ def search_products(
     max_price: float | None = None,
 ) -> list[dict]:
     """Einfacher Produktsuch-Helper."""
-    sql = "SELECT id, name, cas_number, supplier, purity, package_size, price, currency, delivery_time_days FROM products WHERE 1=1"
+    sql = "SELECT id, name, cas_number, supplier, purity, package_size, price, currency, delivery_time_days, available_quantity, available_unit FROM products WHERE 1=1"
     params: list[object] = []
 
     if query:
@@ -199,6 +220,8 @@ def search_products(
             price,
             currency,
             delivery_time_days,
+            available_quantity,
+            available_unit,
         ) = row
         products.append(
             {
@@ -211,6 +234,8 @@ def search_products(
                 "price": price,
                 "currency": currency,
                 "delivery_time_days": delivery_time_days,
+                "available_quantity": available_quantity,
+                "available_unit": available_unit,
             }
         )
     return products
@@ -226,8 +251,9 @@ def create_order(
     external_purity: str | None = None,
     external_package_size: str | None = None,
     external_price_range: str | None = None,
+    auto_reduce_inventory: bool = True,
 ) -> dict:
-    """Erstellt interne oder externe Orders."""
+    """Erstellt interne oder externe Orders. Automatisch reduziert verfügbare Menge bei internen Orders."""
     from uuid import uuid4
 
     order_id = f"ORD-{uuid4().hex[:8].upper()}"
@@ -262,6 +288,11 @@ def create_order(
                 now,
             ),
         )
+        
+        # Automatically reduce available quantity for internal orders (product_id > 0)
+        if auto_reduce_inventory and product_id > 0:
+            # Use the same connection to avoid locking issues
+            _reduce_product_quantity_with_cursor(cur, product_id, quantity, unit, now)
 
     return {
         "order_id": order_id,
@@ -386,7 +417,7 @@ def list_all_products():
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, name, cas_number, supplier, purity, package_size, price, currency, delivery_time_days
+        SELECT id, name, cas_number, supplier, purity, package_size, price, currency, delivery_time_days, available_quantity, available_unit
         FROM products
     """)
 
@@ -405,8 +436,94 @@ def list_all_products():
             "price": r[6],
             "currency": r[7],
             "delivery_time_days": r[8],
+            "available_quantity": r[9] if len(r) > 9 else None,
+            "available_unit": r[10] if len(r) > 10 else None,
         })
     return results
+
+
+def _reduce_product_quantity_with_cursor(cur, product_id: int, quantity: float, unit: str, timestamp: str) -> bool:
+    """
+    Internal helper to reduce product quantity using an existing cursor.
+    Used within create_order to avoid connection locking.
+    """
+    # Get current available_quantity
+    cur.execute(
+        "SELECT available_quantity, available_unit FROM products WHERE id = ?",
+        (product_id,)
+    )
+    row = cur.fetchone()
+    
+    if row is None:
+        return False
+    
+    current_quantity, current_unit = row
+    
+    # If no quantity was set, skip reduction (cannot reduce from NULL)
+    if current_quantity is None:
+        return False
+    
+    # For now, we only reduce if units match (can be enhanced later with unit conversion)
+    if current_unit and current_unit != unit:
+        # Units don't match - skip automatic reduction but don't fail
+        return False
+    
+    # Calculate new quantity
+    new_quantity = max(0.0, current_quantity - quantity)
+    
+    # Update the product
+    cur.execute(
+        "UPDATE products SET available_quantity = ?, last_updated = ? WHERE id = ?",
+        (new_quantity, timestamp, product_id)
+    )
+    
+    return cur.rowcount > 0
+
+
+def reduce_product_quantity(product_id: int, quantity: float, unit: str) -> bool:
+    """
+    Reduziert die verfügbare Menge eines Produkts basierend auf einer Bestellung.
+    Gibt True zurück, wenn die Aktualisierung erfolgreich war.
+    
+    Note: Diese Funktion führt keine Unit-Konvertierung durch.
+    Es wird erwartet, dass quantity und unit mit der vorhandenen available_unit übereinstimmen.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor()
+        timestamp = datetime.utcnow().isoformat()
+        return _reduce_product_quantity_with_cursor(cur, product_id, quantity, unit, timestamp)
+
+
+def get_product(product_id: int) -> dict | None:
+    """Retrieves a single product by ID."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, name, cas_number, supplier, purity, package_size, price, currency, 
+                   delivery_time_days, available_quantity, available_unit
+            FROM products WHERE id = ?
+            """,
+            (product_id,)
+        )
+        row = cur.fetchone()
+        
+    if row is None:
+        return None
+    
+    return {
+        "id": row[0],
+        "name": row[1],
+        "cas_number": row[2],
+        "supplier": row[3],
+        "purity": row[4],
+        "package_size": row[5],
+        "price": row[6],
+        "currency": row[7],
+        "delivery_time_days": row[8],
+        "available_quantity": row[9],
+        "available_unit": row[10],
+    }
 
 
 def calculate_monthly_spending(year: int, month: int) -> dict:

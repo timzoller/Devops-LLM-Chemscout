@@ -25,6 +25,8 @@ from src.database.db import (
     get_order_status,
     list_open_orders,
     calculate_monthly_spending,
+    reduce_product_quantity,
+    get_product,
 )
 
 # -----------------------------
@@ -56,6 +58,8 @@ def add_product_tool(
     price: float | None = None,
     currency: str = "CHF",
     delivery_time_days: int | None = None,
+    available_quantity: float | None = None,
+    available_unit: str = "g",
 ) -> dict:
     """Fügt ein neues Produkt in die Datenbank ein."""
     product_id = add_product(
@@ -67,6 +71,8 @@ def add_product_tool(
         price=price,
         currency=currency,
         delivery_time_days=delivery_time_days,
+        available_quantity=available_quantity,
+        available_unit=available_unit,
     )
     return {"status": "ok", "product_id": product_id}
 
@@ -82,6 +88,8 @@ def update_product_tool(
     price: float | None = None,
     currency: str | None = None,
     delivery_time_days: int | None = None,
+    available_quantity: float | None = None,
+    available_unit: str | None = None,
 ) -> dict:
     """Aktualisiert ein Produkt."""
     success = update_product(
@@ -94,6 +102,8 @@ def update_product_tool(
         price=price,
         currency=currency,
         delivery_time_days=delivery_time_days,
+        available_quantity=available_quantity,
+        available_unit=available_unit,
     )
     return {"status": "ok" if success else "not_found"}
 

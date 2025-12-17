@@ -32,6 +32,7 @@ ALLOWED_TOOLS_DATA = {
     "list_products_tool",
     "read_json_file_tool",
     "import_products_from_json_tool",
+    "process_inventory_alert_tool",
 }
 
 ALLOWED_TOOLS_ORDER = {
