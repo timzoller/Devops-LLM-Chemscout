@@ -1,9 +1,25 @@
 import sqlite3
+import json
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from src.config import DB_PATH
+
+# Thread-local storage for agent context
+import threading
+_agent_context = threading.local()
+
+
+def set_agent_context(agent_name: str | None) -> None:
+    """Set the current agent context for audit logging."""
+    _agent_context.name = agent_name
+
+
+def get_agent_context() -> str:
+    """Get the current agent context, defaults to 'unknown'."""
+    return getattr(_agent_context, 'name', None) or 'unknown'
 
 
 @contextmanager
@@ -77,6 +93,40 @@ def init_db() -> None:
                 external_price_range TEXT,
 
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        # -------------------------
+        # AUDIT LOG TABLE
+        # -------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                action TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                record_id TEXT,
+                old_values TEXT,
+                new_values TEXT,
+                details TEXT
+            )
+            """
+        )
+
+        # -------------------------
+        # PROCESSED INVENTORY ALERTS TABLE
+        # -------------------------
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS processed_inventory_alerts (
+                order_id TEXT PRIMARY KEY,
+                processed_at TEXT NOT NULL,
+                processed_by TEXT NOT NULL,
+                result TEXT,
+                details TEXT
             )
             """
         )
@@ -197,8 +247,8 @@ def search_products(
         sql += " AND cas_number = ?"
         params.append(cas_number)
     if supplier:
-        sql += " AND supplier = ?"
-        params.append(supplier)
+        sql += " AND supplier LIKE ?"
+        params.append(f"%{supplier}%")
     if max_price is not None:
         sql += " AND price <= ?"
         params.append(max_price)
@@ -526,6 +576,92 @@ def get_product(product_id: int) -> dict | None:
     }
 
 
+def list_all_orders(
+    status: str | None = None,
+    sort_by: str = "created_at",
+    sort_order: str = "DESC",
+    limit: int | None = None,
+) -> list[dict]:
+    """
+    Lists all orders with optional filtering and sorting.
+    
+    Args:
+        status: Filter by status (e.g., 'OPEN', 'COMPLETED', 'CANCELLED'). None for all.
+        sort_by: Column to sort by ('created_at', 'order_id', 'quantity', 'status').
+        sort_order: 'ASC' or 'DESC' (default DESC for newest first).
+        limit: Maximum number of orders to return. None for all.
+    
+    Returns:
+        List of order dictionaries.
+    """
+    # Validate sort_by to prevent SQL injection
+    valid_columns = {"created_at", "order_id", "quantity", "status", "product_id"}
+    if sort_by not in valid_columns:
+        sort_by = "created_at"
+    
+    # Validate sort_order
+    sort_order = "DESC" if sort_order.upper() not in ("ASC", "DESC") else sort_order.upper()
+    
+    sql = """
+        SELECT order_id, product_id, quantity, unit, status,
+               customer_reference,
+               external_name, external_supplier, external_purity,
+               external_package_size, external_price_range,
+               created_at
+        FROM orders
+    """
+    params: list[object] = []
+    
+    if status:
+        sql += " WHERE status = ?"
+        params.append(status.upper())
+    
+    sql += f" ORDER BY {sort_by} {sort_order}"
+    
+    if limit is not None and limit > 0:
+        sql += " LIMIT ?"
+        params.append(limit)
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    
+    orders: list[dict] = []
+    for row in rows:
+        (
+            oid,
+            product_id,
+            quantity,
+            unit,
+            status,
+            customer_reference,
+            external_name,
+            external_supplier,
+            external_purity,
+            external_package_size,
+            external_price_range,
+            created_at,
+        ) = row
+        orders.append(
+            {
+                "order_id": oid,
+                "product_id": product_id,
+                "quantity": quantity,
+                "unit": unit,
+                "status": status,
+                "customer_reference": customer_reference,
+                "external_name": external_name,
+                "external_supplier": external_supplier,
+                "external_purity": external_purity,
+                "external_package_size": external_package_size,
+                "external_price_range": external_price_range,
+                "created_at": created_at,
+            }
+        )
+    return orders
+
+
 def calculate_monthly_spending(year: int, month: int) -> dict:
     """
     Aggregiert alle Ausgaben für einen gegebenen Monat.
@@ -621,4 +757,173 @@ def calculate_monthly_spending(year: int, month: int) -> dict:
         "orders": orders_list
     }
 
+
+# ---------------------------------------------------------------------
+# AUDIT LOGGING FUNCTIONS
+# ---------------------------------------------------------------------
+
+def log_audit(
+    action: str,
+    table_name: str,
+    record_id: str | int | None = None,
+    old_values: dict | None = None,
+    new_values: dict | None = None,
+    details: str | None = None,
+    agent_name: str | None = None,
+) -> int:
+    """
+    Logs a database action to the audit_log table.
+    
+    Args:
+        action: The action performed (INSERT, UPDATE, DELETE, etc.)
+        table_name: The table affected
+        record_id: The primary key of the affected record
+        old_values: Previous values (for UPDATE/DELETE)
+        new_values: New values (for INSERT/UPDATE)
+        details: Additional details/notes
+        agent_name: Override agent context (defaults to current context)
+    
+    Returns:
+        The ID of the audit log entry
+    """
+    timestamp = datetime.utcnow().isoformat()
+    agent = agent_name or get_agent_context()
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO audit_log (timestamp, agent_name, action, table_name, record_id, old_values, new_values, details)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp,
+                agent,
+                action,
+                table_name,
+                str(record_id) if record_id is not None else None,
+                json.dumps(old_values) if old_values else None,
+                json.dumps(new_values) if new_values else None,
+                details,
+            ),
+        )
+        return cur.lastrowid
+
+
+def get_audit_log(
+    limit: int = 100,
+    table_name: str | None = None,
+    agent_name: str | None = None,
+    action: str | None = None,
+) -> list[dict]:
+    """
+    Retrieves audit log entries with optional filtering.
+    
+    Args:
+        limit: Maximum number of entries to return
+        table_name: Filter by table name
+        agent_name: Filter by agent name
+        action: Filter by action type
+    
+    Returns:
+        List of audit log entries (newest first)
+    """
+    sql = "SELECT id, timestamp, agent_name, action, table_name, record_id, old_values, new_values, details FROM audit_log WHERE 1=1"
+    params: list[Any] = []
+    
+    if table_name:
+        sql += " AND table_name = ?"
+        params.append(table_name)
+    if agent_name:
+        sql += " AND agent_name = ?"
+        params.append(agent_name)
+    if action:
+        sql += " AND action = ?"
+        params.append(action)
+    
+    sql += " ORDER BY timestamp DESC LIMIT ?"
+    params.append(limit)
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    
+    entries: list[dict] = []
+    for row in rows:
+        entries.append({
+            "id": row[0],
+            "timestamp": row[1],
+            "agent_name": row[2],
+            "action": row[3],
+            "table_name": row[4],
+            "record_id": row[5],
+            "old_values": json.loads(row[6]) if row[6] else None,
+            "new_values": json.loads(row[7]) if row[7] else None,
+            "details": row[8],
+        })
+    return entries
+
+
+# ---------------------------------------------------------------------
+# PROCESSED INVENTORY ALERTS FUNCTIONS
+# ---------------------------------------------------------------------
+
+def is_inventory_alert_processed(order_id: str) -> bool:
+    """Check if an inventory alert has already been processed."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM processed_inventory_alerts WHERE order_id = ?",
+            (order_id,)
+        )
+        return cur.fetchone() is not None
+
+
+def mark_inventory_alert_processed(
+    order_id: str,
+    result: str,
+    details: str | None = None,
+    processed_by: str | None = None,
+) -> None:
+    """Mark an inventory alert as processed."""
+    timestamp = datetime.utcnow().isoformat()
+    agent = processed_by or get_agent_context()
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT OR REPLACE INTO processed_inventory_alerts (order_id, processed_at, processed_by, result, details)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (order_id, timestamp, agent, result, details),
+        )
+
+
+def get_processed_inventory_alerts(limit: int = 100) -> list[dict]:
+    """Get a list of processed inventory alerts."""
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT order_id, processed_at, processed_by, result, details
+            FROM processed_inventory_alerts
+            ORDER BY processed_at DESC
+            LIMIT ?
+            """,
+            (limit,)
+        )
+        rows = cur.fetchall()
+    
+    return [
+        {
+            "order_id": row[0],
+            "processed_at": row[1],
+            "processed_by": row[2],
+            "result": row[3],
+            "details": row[4],
+        }
+        for row in rows
+    ]
 

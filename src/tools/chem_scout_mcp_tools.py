@@ -24,9 +24,15 @@ from src.database.db import (
     create_order,
     get_order_status,
     list_open_orders,
+    list_all_orders,
     calculate_monthly_spending,
     reduce_product_quantity,
     get_product,
+    log_audit,
+    set_agent_context,
+    is_inventory_alert_processed,
+    mark_inventory_alert_processed,
+    get_audit_log,
 )
 
 # -----------------------------
@@ -60,8 +66,11 @@ def add_product_tool(
     delivery_time_days: int | None = None,
     available_quantity: float | None = None,
     available_unit: str = "g",
+    agent_name: str = "data_agent",
 ) -> dict:
     """Fügt ein neues Produkt in die Datenbank ein."""
+    set_agent_context(agent_name)
+    
     product_id = add_product(
         name=name,
         cas_number=cas_number,
@@ -74,6 +83,27 @@ def add_product_tool(
         available_quantity=available_quantity,
         available_unit=available_unit,
     )
+    
+    # Log the action
+    log_audit(
+        action="INSERT",
+        table_name="products",
+        record_id=product_id,
+        new_values={
+            "name": name,
+            "cas_number": cas_number,
+            "supplier": supplier,
+            "purity": purity,
+            "package_size": package_size,
+            "price": price,
+            "currency": currency,
+            "delivery_time_days": delivery_time_days,
+            "available_quantity": available_quantity,
+            "available_unit": available_unit,
+        },
+        agent_name=agent_name,
+    )
+    
     return {"status": "ok", "product_id": product_id}
 
 
@@ -90,8 +120,14 @@ def update_product_tool(
     delivery_time_days: int | None = None,
     available_quantity: float | None = None,
     available_unit: str | None = None,
+    agent_name: str = "data_agent",
 ) -> dict:
     """Aktualisiert ein Produkt."""
+    set_agent_context(agent_name)
+    
+    # Get old values before update
+    old_product = get_product(product_id)
+    
     success = update_product(
         product_id=product_id,
         name=name,
@@ -105,13 +141,62 @@ def update_product_tool(
         available_quantity=available_quantity,
         available_unit=available_unit,
     )
+    
+    if success:
+        # Build new_values dict with only changed fields
+        new_values = {}
+        if name is not None:
+            new_values["name"] = name
+        if cas_number is not None:
+            new_values["cas_number"] = cas_number
+        if supplier is not None:
+            new_values["supplier"] = supplier
+        if purity is not None:
+            new_values["purity"] = purity
+        if package_size is not None:
+            new_values["package_size"] = package_size
+        if price is not None:
+            new_values["price"] = price
+        if currency is not None:
+            new_values["currency"] = currency
+        if delivery_time_days is not None:
+            new_values["delivery_time_days"] = delivery_time_days
+        if available_quantity is not None:
+            new_values["available_quantity"] = available_quantity
+        if available_unit is not None:
+            new_values["available_unit"] = available_unit
+        
+        log_audit(
+            action="UPDATE",
+            table_name="products",
+            record_id=product_id,
+            old_values=old_product,
+            new_values=new_values,
+            agent_name=agent_name,
+        )
+    
     return {"status": "ok" if success else "not_found"}
 
 
 @SERVER.tool()
-def delete_product_tool(product_id: int) -> dict:
+def delete_product_tool(product_id: int, agent_name: str = "data_agent") -> dict:
     """Löscht ein Produkt."""
+    set_agent_context(agent_name)
+    
+    # Get product info before deletion for audit
+    old_product = get_product(product_id)
+    
     success = delete_product(product_id)
+    
+    if success:
+        log_audit(
+            action="DELETE",
+            table_name="products",
+            record_id=product_id,
+            old_values=old_product,
+            agent_name=agent_name,
+        )
+    
     return {"status": "ok" if success else "not_found"}
 
 
@@ -366,13 +451,25 @@ def create_order_tool(
     purity: str | None = None,
     package_size: str | None = None,
     price_range: str | None = None,
+    agent_name: str = "order_agent",
 ) -> dict:
     """
     Creates an order. Accepts product_id=0 for external items.
+    
+    IMPORTANT: This tool does NOT modify inventory directly.
+    After creating an order, the Order Agent MUST call request_inventory_revision_tool
+    to notify the Data Agent, who will then process the inventory update via
+    process_inventory_alert_tool.
+    
+    Workflow:
+    1. Order Agent calls create_order_tool (creates order, NO inventory change)
+    2. Order Agent calls request_inventory_revision_tool (creates alert file)
+    3. Data Agent calls process_inventory_alert_tool (updates inventory)
     """
+    set_agent_context(agent_name)
 
     if product_id == 0:
-        # EXTERNAL ORDER
+        # EXTERNAL ORDER - no inventory to track
         order = create_order(
             product_id=0,
             quantity=quantity,
@@ -383,18 +480,57 @@ def create_order_tool(
             external_purity=purity,
             external_package_size=package_size,
             external_price_range=price_range,
+            auto_reduce_inventory=False,  # Never auto-reduce for external
         )
         order["external"] = True
+        
+        # Log external order
+        log_audit(
+            action="INSERT",
+            table_name="orders",
+            record_id=order["order_id"],
+            new_values={
+                "product_id": 0,
+                "quantity": quantity,
+                "unit": unit,
+                "customer_reference": customer_reference,
+                "external_name": name,
+                "external_supplier": supplier,
+                "external_purity": purity,
+                "external_package_size": package_size,
+                "external_price_range": price_range,
+            },
+            details="External order (product not in database)",
+            agent_name=agent_name,
+        )
         return order
 
-    # INTERNAL ORDER
+    # INTERNAL ORDER - inventory handled by Data Agent via inventory alert
     order = create_order(
         product_id=product_id,
         quantity=quantity,
         unit=unit,
         customer_reference=customer_reference,
+        auto_reduce_inventory=False,  # DO NOT auto-reduce - Data Agent handles this
     )
     order["external"] = False
+    order["inventory_note"] = "IMPORTANT: Call request_inventory_revision_tool to notify Data Agent for inventory update"
+    
+    # Log internal order (inventory NOT modified here)
+    log_audit(
+        action="INSERT",
+        table_name="orders",
+        record_id=order["order_id"],
+        new_values={
+            "product_id": product_id,
+            "quantity": quantity,
+            "unit": unit,
+            "customer_reference": customer_reference,
+        },
+        details="Internal order created (inventory pending - Data Agent will process via inventory alert)",
+        agent_name=agent_name,
+    )
+    
     return order
 
 @SERVER.tool()
@@ -410,6 +546,45 @@ def get_order_status_tool(order_id: str) -> dict:
 def list_open_orders_tool() -> list[dict]:
     """Listet alle offenen Bestellungen."""
     return list_open_orders()
+
+
+@SERVER.tool()
+def list_all_orders_tool(
+    status: str | None = None,
+    sort_by: str = "created_at",
+    sort_order: str = "DESC",
+    limit: int | None = None,
+) -> list[dict]:
+    """
+    Lists all orders with optional filtering and sorting.
+    
+    Use this tool to display orders to the user, especially when they want to see:
+    - All orders (not just open ones)
+    - Latest/newest orders (sort_order='DESC')
+    - Oldest orders first (sort_order='ASC')
+    - A specific number of recent orders (use limit parameter)
+    
+    Args:
+        status: Filter by status ('OPEN', 'COMPLETED', 'CANCELLED'). None for all statuses.
+        sort_by: Column to sort by. Options: 'created_at' (default), 'order_id', 'quantity', 'status'.
+        sort_order: 'DESC' for newest first (default), 'ASC' for oldest first.
+        limit: Maximum number of orders to return. None for all orders.
+    
+    Returns:
+        List of order dictionaries with all order details.
+    
+    Examples:
+        - Show latest 5 orders: list_all_orders_tool(limit=5)
+        - Show all completed orders: list_all_orders_tool(status='COMPLETED')
+        - Show oldest orders first: list_all_orders_tool(sort_order='ASC')
+    """
+    return list_all_orders(
+        status=status,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        limit=limit,
+    )
+
 
 @SERVER.tool()
 def monthly_spending_tool(year: int, month: int) -> dict:
@@ -500,14 +675,27 @@ def request_inventory_revision_tool(
 
 
 @SERVER.tool()
-def process_inventory_alert_tool(order_id: str) -> dict:
+def process_inventory_alert_tool(order_id: str, agent_name: str = "data_agent") -> dict:
     """
     Processes an inventory alert file and automatically reduces available quantity for internal orders.
     This tool reads the inventory alert file created by request_inventory_revision_tool and
     updates the product's available_quantity if it's an internal order (product_id > 0).
     
+    IMPORTANT: This tool tracks processed alerts to prevent duplicate processing.
+    If an alert has already been processed, it will return status "already_processed".
+    
     Returns status and details about what was processed.
     """
+    set_agent_context(agent_name)
+    
+    # Check if this alert was already processed
+    if is_inventory_alert_processed(order_id):
+        return {
+            "status": "already_processed",
+            "message": f"Inventory alert for order {order_id} has already been processed. No action taken to prevent duplicate inventory reduction.",
+            "order_id": order_id,
+        }
+    
     filename = f"inventory_{order_id}.txt"
     alert_file = INVENTORY_ALERTS_DIR / filename
     
@@ -527,6 +715,13 @@ def process_inventory_alert_tool(order_id: str) -> dict:
     
     product_id_str = alert_data.get("product_id", "unknown")
     if product_id_str == "unknown" or not product_id_str.isdigit():
+        # Mark as processed with skip status
+        mark_inventory_alert_processed(
+            order_id=order_id,
+            result="skipped",
+            details="Invalid or missing product_id",
+            processed_by=agent_name,
+        )
         return {
             "status": "skipped",
             "message": f"Invalid or missing product_id in alert file for order {order_id}",
@@ -536,6 +731,12 @@ def process_inventory_alert_tool(order_id: str) -> dict:
     
     # Only process internal orders (product_id > 0)
     if product_id == 0:
+        mark_inventory_alert_processed(
+            order_id=order_id,
+            result="skipped",
+            details="External order (product_id=0)",
+            processed_by=agent_name,
+        )
         return {
             "status": "skipped",
             "message": f"Order {order_id} is an external order (product_id=0), no inventory to update",
@@ -544,6 +745,12 @@ def process_inventory_alert_tool(order_id: str) -> dict:
     # Get ordered quantity
     ordered_qty_str = alert_data.get("ordered_quantity", "")
     if not ordered_qty_str or ordered_qty_str == "unspecified":
+        mark_inventory_alert_processed(
+            order_id=order_id,
+            result="error",
+            details="Ordered quantity not specified",
+            processed_by=agent_name,
+        )
         return {
             "status": "error",
             "message": f"Ordered quantity not specified in alert file for order {order_id}",
@@ -552,6 +759,12 @@ def process_inventory_alert_tool(order_id: str) -> dict:
     # Parse quantity and unit from string like "2.0 g" or "100.5 kg"
     parts = ordered_qty_str.split()
     if len(parts) < 2:
+        mark_inventory_alert_processed(
+            order_id=order_id,
+            result="error",
+            details=f"Could not parse quantity from '{ordered_qty_str}'",
+            processed_by=agent_name,
+        )
         return {
             "status": "error",
             "message": f"Could not parse quantity and unit from '{ordered_qty_str}'",
@@ -561,6 +774,12 @@ def process_inventory_alert_tool(order_id: str) -> dict:
         quantity = float(parts[0])
         unit = " ".join(parts[1:])
     except ValueError:
+        mark_inventory_alert_processed(
+            order_id=order_id,
+            result="error",
+            details=f"Could not parse quantity '{parts[0]}' as number",
+            processed_by=agent_name,
+        )
         return {
             "status": "error",
             "message": f"Could not parse quantity '{parts[0]}' as a number",
@@ -569,6 +788,12 @@ def process_inventory_alert_tool(order_id: str) -> dict:
     # Get current product info
     product = get_product(product_id)
     if product is None:
+        mark_inventory_alert_processed(
+            order_id=order_id,
+            result="error",
+            details=f"Product {product_id} not found",
+            processed_by=agent_name,
+        )
         return {
             "status": "error",
             "message": f"Product {product_id} not found in database",
@@ -580,6 +805,26 @@ def process_inventory_alert_tool(order_id: str) -> dict:
     if success:
         # Get updated product info
         updated_product = get_product(product_id)
+        
+        # Log the inventory change
+        log_audit(
+            action="UPDATE",
+            table_name="products",
+            record_id=product_id,
+            old_values={"available_quantity": product.get("available_quantity")},
+            new_values={"available_quantity": updated_product.get("available_quantity") if updated_product else None},
+            details=f"Inventory reduced via alert for order {order_id}",
+            agent_name=agent_name,
+        )
+        
+        # Mark as processed
+        mark_inventory_alert_processed(
+            order_id=order_id,
+            result="ok",
+            details=f"Reduced product {product_id} by {quantity} {unit}",
+            processed_by=agent_name,
+        )
+        
         return {
             "status": "ok",
             "message": f"Successfully reduced available quantity for product {product_id}",
@@ -590,6 +835,12 @@ def process_inventory_alert_tool(order_id: str) -> dict:
             "new_quantity": updated_product.get("available_quantity") if updated_product else None,
         }
     else:
+        mark_inventory_alert_processed(
+            order_id=order_id,
+            result="warning",
+            details=f"Could not reduce quantity (units mismatch or NULL)",
+            processed_by=agent_name,
+        )
         return {
             "status": "warning",
             "message": f"Could not reduce quantity (possibly units don't match or quantity was NULL)",
@@ -599,6 +850,167 @@ def process_inventory_alert_tool(order_id: str) -> dict:
             "requested_quantity": quantity,
             "requested_unit": unit,
         }
+
+# -----------------------------
+# Notification Display Tools
+# -----------------------------
+@SERVER.tool()
+def list_notifications_tool(
+    limit: int = 20,
+    order_id: str | None = None,
+) -> dict:
+    """
+    Lists all customer notifications that have been sent.
+    
+    Args:
+        limit: Maximum number of notifications to return (default 20)
+        order_id: Filter by specific order ID (optional)
+    
+    Returns:
+        List of notification summaries with timestamps and order IDs.
+    """
+    notifications = []
+    
+    if not NOTIFICATIONS_DIR.exists():
+        return {"status": "ok", "notifications": [], "total": 0}
+    
+    # Get all notification files
+    files = list(NOTIFICATIONS_DIR.glob("*.txt"))
+    
+    # Sort by modification time (newest first)
+    files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    for file_path in files[:limit * 2]:  # Read more to filter if needed
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            lines = content.strip().split("\n")
+            
+            # Parse notification data
+            notification_data = {"filename": file_path.name}
+            message_lines = []
+            in_message = False
+            
+            for line in lines:
+                if in_message:
+                    message_lines.append(line)
+                elif line.startswith("message:"):
+                    in_message = True
+                elif ":" in line:
+                    key, value = line.split(":", 1)
+                    notification_data[key.strip()] = value.strip()
+            
+            notification_data["message"] = "\n".join(message_lines).strip()
+            
+            # Filter by order_id if specified
+            if order_id and notification_data.get("order_id") != order_id:
+                continue
+            
+            notifications.append(notification_data)
+            
+            if len(notifications) >= limit:
+                break
+                
+        except Exception as e:
+            continue  # Skip files that can't be parsed
+    
+    return {
+        "status": "ok",
+        "notifications": notifications,
+        "total": len(notifications),
+    }
+
+
+@SERVER.tool()
+def get_notification_tool(order_id: str) -> dict:
+    """
+    Gets the full notification details for a specific order.
+    
+    Args:
+        order_id: The order ID to look up notifications for
+    
+    Returns:
+        Full notification content including message body.
+    """
+    # Check for email notification first, then file notification
+    for prefix in ["email", "file"]:
+        filename = f"{prefix}_{order_id}.txt"
+        file_path = NOTIFICATIONS_DIR / filename
+        
+        if file_path.exists():
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                lines = content.strip().split("\n")
+                
+                # Parse notification data
+                notification_data = {
+                    "filename": filename,
+                    "notification_type": prefix,
+                }
+                message_lines = []
+                in_message = False
+                
+                for line in lines:
+                    if in_message:
+                        message_lines.append(line)
+                    elif line.startswith("message:"):
+                        in_message = True
+                    elif ":" in line:
+                        key, value = line.split(":", 1)
+                        notification_data[key.strip()] = value.strip()
+                
+                notification_data["message"] = "\n".join(message_lines).strip()
+                
+                return {
+                    "status": "ok",
+                    "notification": notification_data,
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "message": f"Error reading notification file: {str(e)}",
+                }
+    
+    return {
+        "status": "not_found",
+        "message": f"No notification found for order {order_id}",
+    }
+
+
+# -----------------------------
+# Audit Log Tools
+# -----------------------------
+@SERVER.tool()
+def get_audit_log_tool(
+    limit: int = 50,
+    table_name: str | None = None,
+    agent_name: str | None = None,
+    action: str | None = None,
+) -> dict:
+    """
+    Retrieves the database audit log showing all changes made by agents.
+    
+    Args:
+        limit: Maximum number of entries to return (default 50)
+        table_name: Filter by table name ('products', 'orders')
+        agent_name: Filter by agent name ('data_agent', 'order_agent', 'user')
+        action: Filter by action type ('INSERT', 'UPDATE', 'DELETE')
+    
+    Returns:
+        List of audit log entries showing who changed what and when.
+    """
+    entries = get_audit_log(
+        limit=limit,
+        table_name=table_name,
+        agent_name=agent_name,
+        action=action,
+    )
+    
+    return {
+        "status": "ok",
+        "entries": entries,
+        "total": len(entries),
+    }
+
 
 # -----------------------------
 # Server Start
