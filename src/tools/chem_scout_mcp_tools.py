@@ -24,6 +24,7 @@ from src.database.db import (
     create_order,
     get_order_status,
     list_open_orders,
+    list_all_orders,
     calculate_monthly_spending,
     reduce_product_quantity,
     get_product,
@@ -410,6 +411,45 @@ def get_order_status_tool(order_id: str) -> dict:
 def list_open_orders_tool() -> list[dict]:
     """Listet alle offenen Bestellungen."""
     return list_open_orders()
+
+
+@SERVER.tool()
+def list_all_orders_tool(
+    status: str | None = None,
+    sort_by: str = "created_at",
+    sort_order: str = "DESC",
+    limit: int | None = None,
+) -> list[dict]:
+    """
+    Lists all orders with optional filtering and sorting.
+    
+    Use this tool to display orders to the user, especially when they want to see:
+    - All orders (not just open ones)
+    - Latest/newest orders (sort_order='DESC')
+    - Oldest orders first (sort_order='ASC')
+    - A specific number of recent orders (use limit parameter)
+    
+    Args:
+        status: Filter by status ('OPEN', 'COMPLETED', 'CANCELLED'). None for all statuses.
+        sort_by: Column to sort by. Options: 'created_at' (default), 'order_id', 'quantity', 'status'.
+        sort_order: 'DESC' for newest first (default), 'ASC' for oldest first.
+        limit: Maximum number of orders to return. None for all orders.
+    
+    Returns:
+        List of order dictionaries with all order details.
+    
+    Examples:
+        - Show latest 5 orders: list_all_orders_tool(limit=5)
+        - Show all completed orders: list_all_orders_tool(status='COMPLETED')
+        - Show oldest orders first: list_all_orders_tool(sort_order='ASC')
+    """
+    return list_all_orders(
+        status=status,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        limit=limit,
+    )
+
 
 @SERVER.tool()
 def monthly_spending_tool(year: int, month: int) -> dict:

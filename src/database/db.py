@@ -197,8 +197,8 @@ def search_products(
         sql += " AND cas_number = ?"
         params.append(cas_number)
     if supplier:
-        sql += " AND supplier = ?"
-        params.append(supplier)
+        sql += " AND supplier LIKE ?"
+        params.append(f"%{supplier}%")
     if max_price is not None:
         sql += " AND price <= ?"
         params.append(max_price)
@@ -524,6 +524,92 @@ def get_product(product_id: int) -> dict | None:
         "available_quantity": row[9],
         "available_unit": row[10],
     }
+
+
+def list_all_orders(
+    status: str | None = None,
+    sort_by: str = "created_at",
+    sort_order: str = "DESC",
+    limit: int | None = None,
+) -> list[dict]:
+    """
+    Lists all orders with optional filtering and sorting.
+    
+    Args:
+        status: Filter by status (e.g., 'OPEN', 'COMPLETED', 'CANCELLED'). None for all.
+        sort_by: Column to sort by ('created_at', 'order_id', 'quantity', 'status').
+        sort_order: 'ASC' or 'DESC' (default DESC for newest first).
+        limit: Maximum number of orders to return. None for all.
+    
+    Returns:
+        List of order dictionaries.
+    """
+    # Validate sort_by to prevent SQL injection
+    valid_columns = {"created_at", "order_id", "quantity", "status", "product_id"}
+    if sort_by not in valid_columns:
+        sort_by = "created_at"
+    
+    # Validate sort_order
+    sort_order = "DESC" if sort_order.upper() not in ("ASC", "DESC") else sort_order.upper()
+    
+    sql = """
+        SELECT order_id, product_id, quantity, unit, status,
+               customer_reference,
+               external_name, external_supplier, external_purity,
+               external_package_size, external_price_range,
+               created_at
+        FROM orders
+    """
+    params: list[object] = []
+    
+    if status:
+        sql += " WHERE status = ?"
+        params.append(status.upper())
+    
+    sql += f" ORDER BY {sort_by} {sort_order}"
+    
+    if limit is not None and limit > 0:
+        sql += " LIMIT ?"
+        params.append(limit)
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    
+    orders: list[dict] = []
+    for row in rows:
+        (
+            oid,
+            product_id,
+            quantity,
+            unit,
+            status,
+            customer_reference,
+            external_name,
+            external_supplier,
+            external_purity,
+            external_package_size,
+            external_price_range,
+            created_at,
+        ) = row
+        orders.append(
+            {
+                "order_id": oid,
+                "product_id": product_id,
+                "quantity": quantity,
+                "unit": unit,
+                "status": status,
+                "customer_reference": customer_reference,
+                "external_name": external_name,
+                "external_supplier": external_supplier,
+                "external_purity": external_purity,
+                "external_package_size": external_package_size,
+                "external_price_range": external_price_range,
+                "created_at": created_at,
+            }
+        )
+    return orders
 
 
 def calculate_monthly_spending(year: int, month: int) -> dict:

@@ -86,7 +86,15 @@ class ToolManager:
     ) -> list[dict]:
 
         tool_name = tool_call.function.name
-        args = json.loads(tool_call.function.arguments)
+        
+        try:
+            args = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError as e:
+            return [{
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": f"Error parsing tool arguments: {e}",
+            }]
 
         # whitelist check → MUST RETURN DICT ONLY
         if (
@@ -99,13 +107,25 @@ class ToolManager:
                 "content": f"Tool '{tool_name}' not allowed.",
             }]
 
-        async with self._session_factory() as session:
-            result = await session.call_tool(tool_name, args)
+        try:
+            async with self._session_factory() as session:
+                result = await session.call_tool(tool_name, args)
 
-            return [
-                tool_call_result_from_mcp(tool_call.id, content)
-                for content in result.content
-            ]
+                return [
+                    tool_call_result_from_mcp(tool_call.id, content)
+                    for content in result.content
+                ]
+        except Exception as e:
+            # Return error as tool output so LLM can handle it
+            return [{
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": json.dumps({
+                    "error": str(e),
+                    "tool": tool_name,
+                    "status": "failed"
+                }),
+            }]
 
 
     @classmethod

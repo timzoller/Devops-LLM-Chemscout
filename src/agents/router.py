@@ -13,8 +13,17 @@ Your output must be exactly one of the following labels:
 - "order" → when the user wants to buy, order, reorder, confirm an order,
             check order status, or select products to purchase.
 
+ALWAYS classify as "order" when ANY of these appear:
+- "AUTOMATED ORDER REQUEST"
+- "Create order" or "create an order"
+- "place an order" or "place order"
+- "buy", "purchase", "reorder"
+- "REQUIRED ACTIONS" with order-related steps
+- quantity + chemical name (e.g., "500 g", "1 L") with purchase intent
+- "order for [chemical name]"
+
 If unclear:
-- Choose "data" unless the user explicitly expresses a desire to place an order.
+- Choose "data" unless the user expresses any desire to place an order.
 
 Output format:
 Just the label, nothing else.

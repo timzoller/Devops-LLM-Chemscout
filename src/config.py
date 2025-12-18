@@ -28,6 +28,7 @@ ALLOWED_TOOLS_DATA = {
     "delete_product_tool",
     "get_order_status_tool",
     "list_open_orders_tool",
+    "list_all_orders_tool",
     "monthly_spending_tool",
     "list_products_tool",
     "read_json_file_tool",
