@@ -4,13 +4,15 @@ import threading
 import streamlit as st
 from dotenv import load_dotenv
 
+from src.config import RATE_LIMIT_CHAT_DIR
+
 load_dotenv()
 
 from src.utils.logger import get_logger
 from src.tools.chem_scout_mcp_tools import SERVER
 from src.database.db import init_db
 
-from chem_scout_ai.common.backend import Gemini2p5Flash
+from chem_scout_ai.common.backend import Gemini2p5Flash, Gemini2p5FlashLite, Gemini3Flash
 from src.agents.router import classify_intent
 from src.agents.factory import build_agents
 from chem_scout_ai.common import types
@@ -60,9 +62,11 @@ def init_app():
     start_mcp_background()
 
     # 3) LLM backend (Gemini 2.5 Flash via Google)
-    backend_cfg = Gemini2p5Flash()
-    backend = backend_cfg.get_async_backend()
-    logger.info(f"Backend initialized ({backend_cfg.name}).")
+    backend = Gemini2p5Flash().get_async_backend(
+        fallback_configs=[Gemini2p5FlashLite(), Gemini3Flash()],
+        chat_store_dir=RATE_LIMIT_CHAT_DIR,
+    )
+    logger.info("Backend initialized.")
 
     # 4) Build agents (data + order)
     agents = build_agents(backend)

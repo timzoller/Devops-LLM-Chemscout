@@ -1,0 +1,156 @@
+{
+  "add_product_calls": [
+    {
+      "product_id": "tmp_001",
+      "name": "Acetylsalicylic Acid",
+      "cas_number": "50-78-2",
+      "supplier": "Sigma Aldrich",
+      "purity": "99%??",
+      "package_size": "500 g",
+      "price": 42.7,
+      "currency": "CHF",
+      "delivery_time_days": 3,
+      "noise_flag": true,
+      "last_checked": "2022-13-40",
+      "internal_score": 0.991,
+      "tags": ["pain", "fever", null, 17],
+      "deprecated": "no but maybe",
+      "warehouse_bin": ["A3", "B7", false]
+    },
+
+    {
+      "name": "ibuprofen API",
+      "supplier": null,
+      "cas_number": "15687-27-1",
+      "price": "31.20",
+      "package_size": "100g",
+      "purity": null,
+      "delivery_time_days": "unknown",
+      "currency": "CHF",
+      "confidence": 0.12,
+      "scraped_from": "random pdf",
+      "scraped_on": 1688890000,
+      "unit_mismatch": true,
+      "comments": ["COX", "NSAID", {"typo": "ibuprofane"}]
+    },
+
+    {
+      "product_id": 778,
+      "name": "Metformin HCl",
+      "cas_number": "1115-70-4",
+      "supplier": "TCI",
+      "package_size": "1kg",
+      "purity": "98.5%",
+      "price": 120.0,
+      "currency": "EUR",
+      "delivery_time_days": 14,
+      "extra": "antidiabetic use",
+      "random_bool": false,
+      "json_inside_json": "{\"note\": \"check polymorph\"}",
+      "warehouse_temp_c": [-20, 4, "ambient"],
+      "checksum": "0xDEADBEEF"
+    },
+
+    {
+      "name": "Dexamethasone",
+      "cas_number": "50-02-2",
+      "supplier": "???",
+      "purity": "pharma grade",
+      "package_size": null,
+      "price": null,
+      "currency": "CHF",
+      "delivery_time_days": 7,
+      "approval_status": ["EMA", "FDA", "??"],
+      "linked_products": [null, 1234, "dex"],
+      "error_count": 2,
+      "manual_override": true
+    },
+
+    {
+      "name": "Remdesivir",
+      "cas_number": "1809249-37-3",
+      "supplier": "hospital-only",
+      "purity": null,
+      "package_size": "10 mg",
+      "price": 520,
+      "currency": "USD",
+      "delivery_time_days": null,
+      "restricted": true,
+      "requires_license": "probably",
+      "visibility": "hidden",
+      "notes_blob": {
+        "trial_phase": 3,
+        "region": ["US", "EU", null],
+        "obsolete": false
+      }
+    },
+
+    {
+      "cas_number": "67-97-0",
+      "name": "Cholecalciferol (Vitamin D3)",
+      "supplier": "anywhere",
+      "purity": "food/pharma",
+      "package_size": "25 g",
+      "price": 9.99,
+      "currency": "CHF",
+      "delivery_time_days": 1,
+      "seo_keywords": "vitamin sunshine bone immune",
+      "ui_color": "#FFEE00",
+      "popularity_rank": 1,
+      "batch_ids": ["VD3-01", "VD3-old", 999]
+    },
+
+    {
+      "name": "Atorvastatin calcium",
+      "cas_number": "134523-00-5",
+      "supplier": "Generic API Vendor Ltd.",
+      "purity": ">=99%",
+      "package_size": "250 g",
+      "price": 2100,
+      "currency": "CHF",
+      "delivery_time_days": 21,
+      "notes": ["statin", "HMG-CoA", false],
+      "margin_estimate": -0.2,
+      "fx_locked": true,
+      "shadow_price": 1999.95,
+      "ml_embedding": [0.12, 0.004, -9.8]
+    },
+
+    {
+      "name": "Caffeine",
+      "cas_number": "58-08-2",
+      "supplier": "lab grade / food grade",
+      "purity": "99.8%",
+      "package_size": "1 kg",
+      "price": 5,
+      "currency": "CHF",
+      "delivery_time_days": 0,
+      "is_stimulant": true,
+      "warning_level": "low?",
+      "also_known_as": ["1,3,7-trimethylxanthine", "coffee thing"],
+      "redundant_field": "redundant_field"
+    },
+
+    {
+      "name": "",
+      "cas_number": null,
+      "supplier": "old stock room",
+      "purity": null,
+      "package_size": "???",
+      "price": -1,
+      "currency": "CHF",
+      "delivery_time_days": 999,
+      "broken": true,
+      "parse_error": "missing name",
+      "last_seen": null,
+      "ghost_entry": {},
+      "confidence": NaN
+    }
+  ],
+  "meta": {
+    "generated_by": "agent_test",
+    "schema_version": "0.0.0-alpha",
+    "warnings": ["inconsistent types", "extra fields detected", 404],
+    "timestamp": "now-ish"
+  }
+}

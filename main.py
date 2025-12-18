@@ -11,7 +11,7 @@ import uvicorn
 
 from src.utils.logger import get_logger
 from src.tools.chem_scout_mcp_tools import SERVER
-from chem_scout_ai.common.backend import Gemini2p5Flash, Gemini2p5FlashLite
+from chem_scout_ai.common.backend import Gemini2p5Flash, Gemini2p5FlashLite, Gemini3Flash
 from chem_scout_ai.common import types
 from src.agents.router import classify_intent
 from src.agents.factory import build_agents
@@ -113,7 +113,7 @@ async def main():
 
     # 2. Init backend
     backend = Gemini2p5Flash().get_async_backend(
-        fallback_configs=[Gemini2p5FlashLite()],
+        fallback_configs=[Gemini2p5FlashLite(), Gemini3Flash()],
         chat_store_dir=RATE_LIMIT_CHAT_DIR,
     )
     logger.info("Backend initialized.")

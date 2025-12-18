@@ -319,7 +319,7 @@ class Gemini2p5FlashLite(LLMBackendConfig):
     base_url: str = _GOOGLE_OPENAI_API_BASE_URL
     model_name: str = "gemini-2.5-flash-lite"
     api_key: str | None = field(default_factory=lambda: os.environ.get(_GOOGLE_API_KEY_ENV_VAR))
-    ratelimit: float | None = 15.
+    ratelimit: float | None = 10.
     is_free: bool = True
 
 
@@ -329,7 +329,17 @@ class Gemini2p5Flash(LLMBackendConfig):
     base_url: str = _GOOGLE_OPENAI_API_BASE_URL
     model_name: str = "gemini-2.5-flash"
     api_key: str | None = field(default_factory=lambda: os.environ.get(_GOOGLE_API_KEY_ENV_VAR))
-    ratelimit: float | None = 10.
+    ratelimit: float | None = 5.
+
+
+@dataclasses.dataclass(kw_only=True)
+class Gemini3Flash(LLMBackendConfig):
+    name: str = "Gemini 3 Flash"
+    base_url: str = _GOOGLE_OPENAI_API_BASE_URL
+    model_name: str = "gemini-3-flash"
+    api_key: str | None = field(default_factory=lambda: os.environ.get(_GOOGLE_API_KEY_ENV_VAR))
+    ratelimit: float | None = 5.
+    is_free: bool = True
 
 
 @dataclasses.dataclass(kw_only=True)
