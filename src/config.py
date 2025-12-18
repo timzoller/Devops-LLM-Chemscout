@@ -34,6 +34,7 @@ ALLOWED_TOOLS_DATA = {
     "read_json_file_tool",
     "import_products_from_json_tool",
     "process_inventory_alert_tool",
+    "get_audit_log_tool",
 }
 
 ALLOWED_TOOLS_ORDER = {
@@ -43,6 +44,9 @@ ALLOWED_TOOLS_ORDER = {
     "list_open_orders_tool",
     "notify_customer_tool",
     "request_inventory_revision_tool",
+    "list_notifications_tool",
+    "get_notification_tool",
+    "get_audit_log_tool",
 }
 
 # ---------------------------------------------------------------------
