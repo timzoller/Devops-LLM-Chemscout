@@ -57,3 +57,25 @@ NOTIFICATIONS_DIR.mkdir(exist_ok=True)
 
 INVENTORY_ALERTS_DIR = DATA_DIR / "inventory_alerts"
 INVENTORY_ALERTS_DIR.mkdir(exist_ok=True)
+
+# ---------------------------------------------------------------------
+# Chat history storage
+# ---------------------------------------------------------------------
+CHAT_HISTORY_DIR = DATA_DIR / "chat-history"
+CHAT_HISTORY_DIR.mkdir(exist_ok=True)
+
+# ---------------------------------------------------------------------
+# Analytics & Audit logging
+# ---------------------------------------------------------------------
+ANALYTICS_DIR = DATA_DIR / "analytics"
+ANALYTICS_DIR.mkdir(exist_ok=True)
+
+AUDIT_LOG_DIR = DATA_DIR / "audit-logs"
+AUDIT_LOG_DIR.mkdir(exist_ok=True)
+
+# ---------------------------------------------------------------------
+# Rate limiting configuration
+# ---------------------------------------------------------------------
+RATE_LIMIT_MAX_MESSAGES_PER_SESSION = 100  # Max messages before warning
+RATE_LIMIT_MAX_MESSAGES_PER_MINUTE = 10    # Burst protection
+RATE_LIMIT_COOLDOWN_SECONDS = 60           # Cooldown after hitting limit

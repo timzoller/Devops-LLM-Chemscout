@@ -19,6 +19,7 @@ from src.interfaces.rich_chat_display import RichChatDisplay
 
 from src.database.db import init_db
 from src.config import RATE_LIMIT_CHAT_DIR
+from src.utils.chat_history_logger import create_full_observer_suite
 
 logger = get_logger(__name__)
 
@@ -122,6 +123,16 @@ async def main():
     agents = build_agents(backend)
     # agents = { "data": (agent, chat), "order": (agent, chat) }
 
+    # 4. Set up full observer suite (history, analytics, rate limiting, audit, tools)
+    composite_observer, observers = create_full_observer_suite(
+        session_name="main",
+        rate_limit_warning_callback=lambda msg: print(f"\n{msg}\n"),
+        rate_limit_exceeded_callback=lambda msg: print(f"\n{msg}\n"),
+    )
+    for agent_name, (agent, chat) in agents.items():
+        chat.add_observer(composite_observer)
+    logger.info(f"Observer suite enabled - History: {observers['history'].filepath}")
+
     display = RichChatDisplay()
 
     print("ChemScout is ready. Type anything.\n")
@@ -132,7 +143,18 @@ async def main():
     while True:
         user_text = input("You: ").strip()
         if not user_text:
-            print("Session ended.")
+            # End session for all observers
+            observers["history"].log_session_end()
+            observers["audit"].log_session_end(reason="user_exit")
+            
+            # Print analytics summary
+            stats = observers["analytics"].get_summary()
+            print(f"\n📊 Session Summary:")
+            print(f"   Messages: {stats['total_messages']} ({stats['message_counts']})")
+            print(f"   Est. tokens: {stats['total_estimated_tokens']}")
+            print(f"   Tool calls: {stats['tool_usage']['total_calls']}")
+            print(f"   Duration: {stats['session_duration_seconds']}s")
+            print("\nSession ended.")
             break
 
         # 1) First classify intent using LLM

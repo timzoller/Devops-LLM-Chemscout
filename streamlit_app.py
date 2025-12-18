@@ -10,6 +10,7 @@ load_dotenv()
 from src.utils.logger import get_logger
 from src.tools.chem_scout_mcp_tools import SERVER
 from src.database.db import init_db
+from src.utils.chat_history_logger import create_full_observer_suite
 
 import openai
 
@@ -172,8 +173,19 @@ def init_app():
     agents = build_agents(backend)
     # agents = { "data": (agent, chat), "order": (agent, chat) }
 
+    # 5) Set up full observer suite (history, analytics, rate limiting, audit, tools)
+    composite_observer, observers = create_full_observer_suite(
+        session_name="streamlit",
+        rate_limit_warning_callback=lambda msg: st.toast(msg, icon="⚠️"),
+        rate_limit_exceeded_callback=lambda msg: st.toast(msg, icon="🚫"),
+    )
+    for agent_name, (agent, chat) in agents.items():
+        chat.add_observer(composite_observer)
+    logger.info(f"Observer suite enabled - History: {observers['history'].filepath}")
+
     st.session_state["backend"] = backend
     st.session_state["agents"] = agents
+    st.session_state["observers"] = observers
     st.session_state["initialized"] = True
     st.session_state.setdefault("chat_history", [])
     st.session_state.setdefault("processing", False)  # Track if a request is in progress
@@ -523,6 +535,28 @@ def main():
         st.header("Session info")
         st.write("Agents: **data** & **order**")
         st.write("Orchestration: MCP tools + async agents")
+        st.markdown("---")
+        
+        # Analytics display
+        if "observers" in st.session_state:
+            observers = st.session_state["observers"]
+            
+            # Rate limit status
+            rate_status = observers["rate_limit"].get_status()
+            st.markdown("### 📊 Session Stats")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Messages", rate_status["total_messages"])
+            with col2:
+                st.metric("Remaining", rate_status["remaining_messages"])
+            
+            # Tool usage
+            tool_stats = observers["tools"].get_stats()
+            st.write(f"🛠️ Tool calls: **{tool_stats.get('total_calls', 0)}**")
+            
+            if rate_status["is_rate_limited"]:
+                st.warning(f"⏳ Rate limited ({rate_status['cooldown_remaining']}s)")
+        
         st.markdown("---")
         st.write(
             "⚠️ LLM calls use free-tier APIs.\n"
